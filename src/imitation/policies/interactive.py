@@ -7,7 +7,7 @@ from typing import Dict, Optional, Union
 import gymnasium as gym
 import matplotlib.pyplot as plt
 import numpy as np
-from shimmy import atari_env
+from ale_py.env import AtariEnv
 from stable_baselines3.common import vec_env
 
 import imitation.policies.base as base_policies
@@ -140,11 +140,11 @@ ATARI_ACTION_NAMES_TO_KEYS = {
 class AtariInteractivePolicy(ImageObsDiscreteInteractivePolicy):
     """Interactive policy for Atari environments."""
 
-    def __init__(self, env: Union[atari_env.AtariEnv, vec_env.VecEnv], *args, **kwargs):
+    def __init__(self, env: Union[AtariEnv, vec_env.VecEnv], *args, **kwargs):
         """Builds AtariInteractivePolicy."""
         action_names = (
             env.get_action_meanings()
-            if isinstance(env, atari_env.AtariEnv)
+            if isinstance(env, AtariEnv)
             else env.env_method("get_action_meanings", indices=[0])[0]
         )
         action_keys_names = collections.OrderedDict(
