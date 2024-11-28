@@ -361,11 +361,14 @@ class DAggerTrainer(base.BaseImitationAlgorithm):
         self._all_demos = []
         self.rng = rng
 
-        utils.check_for_correct_spaces(
-            self.venv,
-            bc_trainer.observation_space,
-            bc_trainer.action_space,
-        )
+        try:
+            utils.check_for_correct_spaces(
+                self.venv,
+                bc_trainer.observation_space,
+                bc_trainer.action_space,
+            )
+        except ValueError as e:
+            UserWarning(e)
         self.bc_trainer = bc_trainer
         self.bc_trainer.logger = self.logger
 
