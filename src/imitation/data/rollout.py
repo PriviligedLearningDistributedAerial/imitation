@@ -411,7 +411,7 @@ def homogenous_policy_to_callable(
         ) -> Tuple[np.ndarray, Optional[Tuple[np.ndarray, ...]]]:
             return policy.predict(observations, 
                                       state=states, 
-                                      episode_starts=episode_starts,
+                                      episode_start=episode_starts,
                                       deterministic=deterministic_policy,
                                       )
     else:

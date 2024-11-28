@@ -1,12 +1,14 @@
 """Custom policy classes and convenience methods."""
 
 import abc
-from typing import Dict, Type, Union
+from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 import gymnasium as gym
+from gymnasium import spaces
 import numpy as np
 import torch as th
 from stable_baselines3.common import policies, torch_layers
+from stable_baselines3.common.utils import obs_as_tensor
 from stable_baselines3.sac import policies as sac_policies
 from torch import nn
 
@@ -26,18 +28,78 @@ class HomogenousActorCriticPolicy(policies.ActorCriticPolicy):
         self.action_overide = action_overide
         self.num_agents = num_agents
 
-    def _predict(self, observations, states, **predict_kwargs):
+    def _predict(self, observation, **predict_kwargs):
         i_acts = []
         for i in range(self.num_agents):
-            (i_act, i_state) = super()._predict(
-                                                self.observation_overide(i, observations),
-                                                states,
-                                                predict_kwargs
-                                                )
+            i_act = super()._predict(
+                                    self.observation_overide(i, observation),
+                                    predict_kwargs
+                                    )
             i_acts.append(i_act)
 
-        acts = np.hstack(i_acts)
-        return acts, states
+        acts = th.hstack(i_acts)
+        return acts
+    
+    def predict(
+        self,
+        observation: Union[np.ndarray, Dict[str, np.ndarray]],
+        state: Optional[Tuple[np.ndarray, ...]] = None,
+        episode_start: Optional[np.ndarray] = None,
+        deterministic: bool = False,
+    ) -> Tuple[np.ndarray, Optional[Tuple[np.ndarray, ...]]]:
+        """
+        Get the policy action from an observation (and optional hidden state).
+        Includes sugar-coating to handle different observations (e.g. normalizing images).
+
+        :param observation: the input observation
+        :param state: The last hidden states (can be None, used in recurrent policies)
+        :param episode_start: The last masks (can be None, used in recurrent policies)
+            this correspond to beginning of episodes,
+            where the hidden states of the RNN must be reset.
+        :param deterministic: Whether or not to return deterministic actions.
+        :return: the model's action and the next hidden state
+            (used in recurrent policies)
+        """
+        # Switch to eval mode (this affects batch norm / dropout)
+        self.set_training_mode(False)
+
+        # Check for common mistake that the user does not mix Gym/VecEnv API
+        # Tuple obs are not supported by SB3, so we can safely do that check
+        if isinstance(observation, tuple) and len(observation) == 2 and isinstance(observation[1], dict):
+            raise ValueError(
+                "You have passed a tuple to the predict() function instead of a Numpy array or a Dict. "
+                "You are probably mixing Gym API with SB3 VecEnv API: `obs, info = env.reset()` (Gym) "
+                "vs `obs = vec_env.reset()` (SB3 VecEnv). "
+                "See related issue https://github.com/DLR-RM/stable-baselines3/issues/1694 "
+                "and documentation for more information: https://stable-baselines3.readthedocs.io/en/master/guide/vec_envs.html#vecenv-api-vs-gym-api"
+            )
+
+        obs_tensor, vectorized_env = obs_as_tensor(observation, self.device), True
+
+        with th.no_grad():
+            actions = self._predict(obs_tensor, deterministic=deterministic)
+        # Convert to numpy, and reshape to the original action shape
+        actions = actions.cpu().numpy()
+
+        if isinstance(self.action_space, spaces.Box):
+            if self.squash_output:
+                # Rescale to proper domain when using squashing
+                actions = self.unscale_action(actions)  # type: ignore[assignment, arg-type]
+            else:
+                # Actions could be on arbitrary scale, so clip the actions to avoid
+                # out of bound error (e.g. if sampling from a Gaussian distribution)
+                actions = np.clip(
+                                    actions, 
+                                    np.concatenate([self.action_space.low for i in range(self.num_agents)]), 
+                                    np.concatenate([self.action_space.high for i in range(self.num_agents)])
+                                    )  # type: ignore[assignment, arg-type]
+
+        # Remove batch dimension if needed
+        if not vectorized_env:
+            assert isinstance(actions, np.ndarray)
+            actions = actions.squeeze(axis=0)
+
+        return actions, state  # type: ignore[return-value]
 
 
 class NonTrainablePolicy(policies.BasePolicy, abc.ABC):
