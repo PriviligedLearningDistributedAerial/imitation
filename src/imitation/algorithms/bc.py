@@ -508,3 +508,269 @@ class BC(algo_base.DemonstrationAlgorithm):
             # if there remains an incomplete batch
             batch_num += 1
             process_batch()
+
+class MultiBC(algo_base.DemonstrationAlgorithm):
+    """Multi agent Behavioral cloning (BC).
+
+    Recovers a policy via supervised learning from observation-action pairs.
+    """
+
+    def __init__(
+        self,
+        *,
+        single_agent_observation_space,
+        single_agent_action_space,
+        observation_overide,
+        action_overide,
+        num_agents,
+        rng: np.random.Generator,
+        policy: Optional[policies.ActorCriticPolicy] = None,
+        demonstrations: Optional[algo_base.AnyTransitions] = None,
+        batch_size: int = 32,
+        minibatch_size: Optional[int] = None,
+        optimizer_cls: Type[th.optim.Optimizer] = th.optim.Adam,
+        optimizer_kwargs: Optional[Mapping[str, Any]] = None,
+        ent_weight: float = 1e-3,
+        l2_weight: float = 0.0,
+        device: Union[str, th.device] = "auto",
+        custom_logger: Optional[imit_logger.HierarchicalLogger] = None,
+    ):
+        """Builds BC.
+
+        Args:
+            observation_space: the observation space of the environment.
+            action_space: the action space of the environment.
+            rng: the random state to use for the random number generator.
+            policy: a Stable Baselines3 policy; if unspecified,
+                defaults to `FeedForward32Policy`.
+            demonstrations: Demonstrations from an expert (optional). Transitions
+                expressed directly as a `types.TransitionsMinimal` object, a sequence
+                of trajectories, or an iterable of transition batches (mappings from
+                keywords to arrays containing observations, etc).
+            batch_size: The number of samples in each batch of expert data.
+            minibatch_size: size of minibatch to calculate gradients over.
+                The gradients are accumulated until `batch_size` examples
+                are processed before making an optimization step. This
+                is useful in GPU training to reduce memory usage, since
+                fewer examples are loaded into memory at once,
+                facilitating training with larger batch sizes, but is
+                generally slower. Must be a factor of `batch_size`.
+                Optional, defaults to `batch_size`.
+            optimizer_cls: optimiser to use for supervised training.
+            optimizer_kwargs: keyword arguments, excluding learning rate and
+                weight decay, for optimiser construction.
+            ent_weight: scaling applied to the policy's entropy regularization.
+            l2_weight: scaling applied to the policy's L2 regularization.
+            device: name/identity of device to place policy on.
+            custom_logger: Where to log to; if None (default), creates a new logger.
+
+        Raises:
+            ValueError: If `weight_decay` is specified in `optimizer_kwargs` (use the
+                parameter `l2_weight` instead), or if the batch size is not a multiple
+                of the minibatch size.
+        """
+        self._demo_data_loader: Optional[Iterable[types.TransitionMapping]] = None
+        self.batch_size = batch_size
+        self.minibatch_size = minibatch_size or batch_size
+        if self.batch_size % self.minibatch_size != 0:
+            raise ValueError("Batch size must be a multiple of minibatch size.")
+        super().__init__(
+            demonstrations=demonstrations,
+            custom_logger=custom_logger,
+        )
+        self._bc_logger = BCLogger(self.logger)
+
+        self.action_space = single_agent_action_space
+        self.observation_space = single_agent_observation_space
+
+        self.observation_overide = observation_overide
+        self.action_overide = action_overide
+
+        self.num_agents = num_agents
+        self.rng = rng
+
+        if policy is None:
+            extractor = (
+                torch_layers.CombinedExtractor
+                if isinstance(single_agent_observation_space, gym.spaces.Dict)
+                else torch_layers.FlattenExtractor
+            )
+            policy = policy_base.HomogenousFeedForward32Policy(
+                observation_space=self.observation_space,
+                action_space=self.action_space,
+                observation_overide=self.observation_overide,
+                action_overide=self.action_overide,
+                num_agents=self.num_agents,
+                # Set lr_schedule to max value to force error if policy.optimizer
+                # is used by mistake (should use self.optimizer instead).
+                lr_schedule=lambda _: th.finfo(th.float32).max,
+                features_extractor_class=extractor,
+            )
+        self._policy = policy.to(utils.get_device(device))
+        # TODO(adam): make policy mandatory and delete observation/action space params?
+        assert self.policy.observation_space == self.observation_space
+        assert self.policy.action_space == self.action_space
+
+        if optimizer_kwargs:
+            if "weight_decay" in optimizer_kwargs:
+                raise ValueError("Use the parameter l2_weight instead of weight_decay.")
+        optimizer_kwargs = optimizer_kwargs or {}
+        self.optimizer = optimizer_cls(
+            self.policy.parameters(),
+            **optimizer_kwargs,
+        )
+
+        self.loss_calculator = BehaviorCloningLossCalculator(ent_weight, l2_weight)
+
+    @property
+    def policy(self) -> policies.ActorCriticPolicy:
+        return self._policy
+    
+    @staticmethod
+    def observation_overide(agent_id, observations):
+        raise NotImplemented("You must supply these methods during initialisation")
+
+    @staticmethod
+    def action_overide(agent_id, actions):
+        raise NotImplemented("You must supply these methods during initialisation")
+
+    def set_demonstrations(self, demonstrations: algo_base.AnyTransitions) -> None:
+        self._demo_data_loader = algo_base.make_data_loader(
+            demonstrations,
+            self.minibatch_size,
+        )
+
+    def train(
+        self,
+        *,
+        n_epochs: Optional[int] = None,
+        n_batches: Optional[int] = None,
+        on_epoch_end: Optional[Callable[[], None]] = None,
+        on_batch_end: Optional[Callable[[], None]] = None,
+        log_interval: int = 500,
+        log_rollouts_venv: Optional[vec_env.VecEnv] = None,
+        log_rollouts_n_episodes: int = 5,
+        progress_bar: bool = True,
+        reset_tensorboard: bool = False,
+    ):
+        """Train with supervised learning for some number of epochs.
+
+        Here an 'epoch' is just a complete pass through the expert data loader,
+        as set by `self.set_expert_data_loader()`. Note, that when you specify
+        `n_batches` smaller than the number of batches in an epoch, the `on_epoch_end`
+        callback will never be called.
+
+        Args:
+            n_epochs: Number of complete passes made through expert data before ending
+                training. Provide exactly one of `n_epochs` and `n_batches`.
+            n_batches: Number of batches loaded from dataset before ending training.
+                Provide exactly one of `n_epochs` and `n_batches`.
+            on_epoch_end: Optional callback with no parameters to run at the end of each
+                epoch.
+            on_batch_end: Optional callback with no parameters to run at the end of each
+                batch.
+            log_interval: Log stats after every log_interval batches.
+            log_rollouts_venv: If not None, then this VecEnv (whose observation and
+                actions spaces must match `self.observation_space` and
+                `self.action_space`) is used to generate rollout stats, including
+                average return and average episode length. If None, then no rollouts
+                are generated.
+            log_rollouts_n_episodes: Number of rollouts to generate when calculating
+                rollout stats. Non-positive number disables rollouts.
+            progress_bar: If True, then show a progress bar during training.
+            reset_tensorboard: If True, then start plotting to Tensorboard from x=0
+                even if `.train()` logged to Tensorboard previously. Has no practical
+                effect if `.train()` is being called for the first time.
+        """
+        if reset_tensorboard:
+            self._bc_logger.reset_tensorboard_steps()
+        self._bc_logger.log_epoch(0)
+
+        compute_rollout_stats = RolloutStatsComputer(
+            log_rollouts_venv,
+            log_rollouts_n_episodes,
+        )
+
+        def _on_epoch_end(epoch_number: int):
+            if tqdm_progress_bar is not None:
+                total_num_epochs_str = f"of {n_epochs}" if n_epochs is not None else ""
+                tqdm_progress_bar.display(
+                    f"Epoch {epoch_number} {total_num_epochs_str}",
+                    pos=1,
+                )
+            self._bc_logger.log_epoch(epoch_number + 1)
+            if on_epoch_end is not None:
+                on_epoch_end()
+
+        mini_per_batch = self.batch_size // self.minibatch_size
+        n_minibatches = n_batches * mini_per_batch if n_batches is not None else None
+
+        assert self._demo_data_loader is not None
+        demonstration_batches = BatchIteratorWithEpochEndCallback(
+            self._demo_data_loader,
+            n_epochs,
+            n_minibatches,
+            _on_epoch_end,
+        )
+        batches_with_stats = enumerate_batches(demonstration_batches)
+        tqdm_progress_bar: Optional[tqdm.tqdm] = None
+
+        if progress_bar:
+            batches_with_stats = tqdm.tqdm(
+                batches_with_stats,
+                unit="batch",
+                total=n_minibatches,
+            )
+            tqdm_progress_bar = batches_with_stats
+
+        def process_batch():
+            self.optimizer.step()
+            self.optimizer.zero_grad()
+
+            if batch_num % log_interval == 0:
+                rollout_stats = compute_rollout_stats(self.policy, self.rng)
+
+                self._bc_logger.log_batch(
+                    batch_num,
+                    minibatch_size,
+                    num_samples_so_far,
+                    training_metrics,
+                    rollout_stats,
+                )
+
+            if on_batch_end is not None:
+                on_batch_end()
+
+        self.optimizer.zero_grad()
+        for (
+            batch_num,
+            minibatch_size,
+            num_samples_so_far,
+        ), batch in batches_with_stats:
+            obs_tensor: Union[th.Tensor, Dict[str, th.Tensor]]
+            # unwraps the observation if it's a dictobs and converts arrays to tensors
+            obs_tensor_all = types.map_maybe_dict(
+                lambda x: util.safe_to_tensor(x, device=self.policy.device),
+                types.maybe_unwrap_dictobs(batch["obs"]),
+            )
+            acts_all = util.safe_to_tensor(batch["acts"], device=self.policy.device)
+            
+            obs_tensor = th.concatenate([self.observation_overide(i, obs_tensor_all) for i in range(self.num_agents)])
+            acts = th.concatenate([self.action_overide(i, acts_all) for i in range(self.num_agents)])
+
+            training_metrics = self.loss_calculator(self.policy, obs_tensor, acts)
+
+            # Renormalise the loss to be averaged over the whole
+            # batch size instead of the minibatch size.
+            # If there is an incomplete batch, its gradients will be
+            # smaller, which may be helpful for stability.
+            loss = training_metrics.loss * minibatch_size / self.batch_size
+            loss.backward()
+
+            batch_num = batch_num * self.minibatch_size // self.batch_size
+            if num_samples_so_far % self.batch_size == 0:
+                process_batch()
+        if num_samples_so_far % self.batch_size != 0:
+            # if there remains an incomplete batch
+            batch_num += 1
+            process_batch()

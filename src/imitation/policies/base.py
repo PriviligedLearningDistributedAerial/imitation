@@ -13,6 +13,32 @@ from torch import nn
 from imitation.data import types
 from imitation.util import networks
 
+class HomogenousActorCriticPolicy(policies.ActorCriticPolicy):
+    def __init__(
+            self,
+            observation_overide,
+            action_overide,
+            num_agents,
+            **acp_kwargs
+            ):
+        super().__init__(**acp_kwargs)
+        self.observation_overide = observation_overide
+        self.action_overide = action_overide
+        self.num_agents = num_agents
+
+    def _predict(self, observations, states, **predict_kwargs):
+        i_acts = []
+        for i in range(self.num_agents):
+            (i_act, i_state) = super()._predict(
+                                                self.observation_overide(i, observations),
+                                                states,
+                                                predict_kwargs
+                                                )
+            i_acts.append(i_act)
+
+        acts = np.hstack(i_acts)
+        return acts, states
+
 
 class NonTrainablePolicy(policies.BasePolicy, abc.ABC):
     """Abstract class for non-trainable (e.g. hard-coded or interactive) policies."""
@@ -90,6 +116,20 @@ class ZeroPolicy(NonTrainablePolicy):
 
 
 class FeedForward32Policy(policies.ActorCriticPolicy):
+    """A feed forward policy network with two hidden layers of 32 units.
+
+    This matches the IRL policies in the original AIRL paper.
+
+    Note: This differs from stable_baselines3 ActorCriticPolicy in two ways: by
+    having 32 rather than 64 units, and by having policy and value networks
+    share weights except at the final layer, where there are different linear heads.
+    """
+
+    def __init__(self, *args, **kwargs):
+        """Builds FeedForward32Policy; arguments passed to `ActorCriticPolicy`."""
+        super().__init__(*args, **kwargs, net_arch=[32, 32])
+
+class HomogenousFeedForward32Policy(HomogenousActorCriticPolicy):
     """A feed forward policy network with two hidden layers of 32 units.
 
     This matches the IRL policies in the original AIRL paper.
