@@ -14,9 +14,9 @@ if TYPE_CHECKING:
 IS_NOT_WINDOWS = os.name != "nt"
 
 PARALLEL_REQUIRE = ["ray[debug,tune]<3.0.0"]
-ATARI_REQUIRE = [
-    "seals[atari]~=0.2.1",
-]
+# ATARI_REQUIRE = [
+#     "seals[atari]~=0.2.1",
+# ]
 PYTYPE = ["pytype==2023.9.27"] if IS_NOT_WINDOWS else []
 
 HYPOTHESIS = ["hypothesis~=6.54.1"]
@@ -57,7 +57,7 @@ TESTS_REQUIRE = (
         "pre-commit>=2.20.0",
     ]
     + PARALLEL_REQUIRE
-    + ATARI_REQUIRE
+    # + ATARI_REQUIRE
     + PYTYPE
     + HYPOTHESIS
 )
@@ -73,7 +73,7 @@ DOCS_REQUIRE = (
         "myst-nb==0.17.2",
         "ipykernel~=6.15.2",
     ]
-    + ATARI_REQUIRE
+    # + ATARI_REQUIRE
     + PARALLEL_REQUIRE
     + HYPOTHESIS
 )
@@ -196,6 +196,8 @@ setup(
     #   for our users.
     install_requires=[
         "gymnasium[classic-control]",
+        "Shimmy~=2.0.0",
+        "ale-py~=0.10.1",
         "matplotlib",
         "numpy<2.0",
         "torch>=1.4.0",
@@ -230,7 +232,7 @@ setup(
         "mujoco": [
             "gymnasium[classic-control,mujoco]",
         ],
-        "atari": ATARI_REQUIRE,
+        # "atari": ATARI_REQUIRE,
     },
     entry_points={
         "console_scripts": [
