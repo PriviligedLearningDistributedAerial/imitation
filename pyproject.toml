@@ -13,7 +13,7 @@ build-backend = "setuptools.build_meta"
 # local_scheme = "imitation.version:get_version"
 
 [tool.black]
-target-version = ["py38"]
+target-version = ["py311"]
 
 [tool.pytype]
 inputs = [
@@ -22,4 +22,4 @@ inputs = [
   "experiments/",
   "setup.py"
 ]
-python_version = "3.8"
+python_version = "3.11"

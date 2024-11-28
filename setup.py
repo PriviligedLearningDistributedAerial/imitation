@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 IS_NOT_WINDOWS = os.name != "nt"
 
-PARALLEL_REQUIRE = ["ray[debug,tune]~=2.0.0"]
+PARALLEL_REQUIRE = ["ray[debug,tune]<3.0.0"]
 ATARI_REQUIRE = [
     "seals[atari]~=0.2.1",
 ]
@@ -51,7 +51,7 @@ TESTS_REQUIRE = (
         "pytest-notebook==0.8.0",
         "pytest-timeout~=2.1.0",
         "pytest-xdist~=2.5.0",
-        "scipy~=1.9.0",
+        "scipy~=1.14.0",
         "wandb==0.12.21",
         "setuptools_scm~=7.0.5",
         "pre-commit>=2.20.0",
@@ -195,15 +195,15 @@ setup(
     #   encode only known incompatibilities here. This prevents nasty dependency issues
     #   for our users.
     install_requires=[
-        "gymnasium[classic-control]~=0.29",
+        "gymnasium[classic-control]",
         "matplotlib",
-        "numpy>=1.15",
+        "numpy<2.0",
         "torch>=1.4.0",
         "tqdm",
         "rich",
         "scikit-learn>=0.21.2",
         "seals~=0.2.1",
-        "stable-baselines3~=2.2.1",
+        "stable-baselines3~=2.4.0",
         "sacred>=0.8.4",
         "tensorboard>=1.14",
         "huggingface_sb3~=3.0",
@@ -228,7 +228,7 @@ setup(
         "docs": DOCS_REQUIRE,
         "parallel": PARALLEL_REQUIRE,
         "mujoco": [
-            "gymnasium[classic-control,mujoco]~=0.29",
+            "gymnasium[classic-control,mujoco]",
         ],
         "atari": ATARI_REQUIRE,
     },
