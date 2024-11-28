@@ -8,12 +8,14 @@ from gymnasium import spaces
 import numpy as np
 import torch as th
 from stable_baselines3.common import policies, torch_layers
-from stable_baselines3.common.utils import obs_as_tensor
+from stable_baselines3.common.utils import obs_as_tensor, get_device
 from stable_baselines3.sac import policies as sac_policies
 from torch import nn
 
 from imitation.data import types
 from imitation.util import networks
+
+SelfHomogeousActorCriticPolicy = TypeVar("SelfHomogeousActorCriticPolicy", bound="HomogenousActorCriticPolicy")
 
 class HomogenousActorCriticPolicy(policies.ActorCriticPolicy):
     def __init__(
@@ -100,6 +102,32 @@ class HomogenousActorCriticPolicy(policies.ActorCriticPolicy):
             actions = actions.squeeze(axis=0)
 
         return actions, state  # type: ignore[return-value]
+    
+    @classmethod
+    def load(cls: Type[SelfHomogeousActorCriticPolicy], 
+            observation_overide,
+            action_overide,
+            num_agents,
+            path: str, 
+            device: Union[th.device, str] = "auto") -> SelfHomogeousActorCriticPolicy:
+        """
+        Load model from path.
+
+        :param path:
+        :param device: Device on which the policy should be loaded.
+        :return:
+        """
+        device = get_device(device)
+        # Note(antonin): we cannot use `weights_only=True` here because we need to allow
+        # gymnasium imports for the policy to be loaded successfully
+        saved_variables = th.load(path, map_location=device, weights_only=False)
+
+        # Create policy object
+        model = cls(observation_overide, action_overide, num_agents, **saved_variables["data"])
+        # Load weights
+        model.load_state_dict(saved_variables["state_dict"])
+        model.to(device)
+        return model
 
 
 class NonTrainablePolicy(policies.BasePolicy, abc.ABC):
