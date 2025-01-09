@@ -23,6 +23,7 @@ from stable_baselines3.common.base_class import BaseAlgorithm
 from stable_baselines3.common.policies import BasePolicy
 from stable_baselines3.common.utils import check_for_correct_spaces
 from stable_baselines3.common.vec_env import VecEnv
+from imitation.policies import base as policy_base
 
 from imitation.data import types
 
@@ -378,12 +379,56 @@ def policy_to_callable(
 
     return get_actions
 
+def homogenous_policy_to_callable(
+    policy: policy_base.HomogenousActorCriticPolicy,
+    venv: VecEnv,
+    deterministic_policy: bool = False,
+) -> PolicyCallable:
+    """Like policy_to_callable, this function converts any policy-like object into a function from observations to actions.
+       Is used for calling multiple homogenous agents sequentially and then concatenating their inputs into 1 datapoint.
+    """
+    get_actions: PolicyCallable
+    if policy is None:
+
+        def get_actions(
+            observations: Union[np.ndarray, Dict[str, np.ndarray]],
+            states: Optional[Tuple[np.ndarray, ...]],
+            episode_starts: Optional[np.ndarray],
+        ) -> Tuple[np.ndarray, Optional[Tuple[np.ndarray, ...]]]:
+            acts = [venv.action_space.sample() for _ in range(len(observations))]
+            return np.stack(acts, axis=0), None
+
+    elif isinstance(policy, (BaseAlgorithm, BasePolicy)):
+        # There's an important subtlety here: BaseAlgorithm and BasePolicy
+        # are themselves Callable (which we check next). But in their case,
+        # we want to use the .predict() method, rather than __call__()
+        # (which would call .forward()). So this elif clause must come first!
+
+        def get_actions(
+            observations: Union[np.ndarray, Dict[str, np.ndarray]],
+            states: Optional[Tuple[np.ndarray, ...]],
+            episode_starts: Optional[np.ndarray],
+        ) -> Tuple[np.ndarray, Optional[Tuple[np.ndarray, ...]]]:
+            return policy.predict(observations, 
+                                      state=states, 
+                                      episode_start=episode_starts,
+                                      deterministic=deterministic_policy,
+                                      )
+    else:
+        raise TypeError(
+            "Policy must be None, a stable-baselines policy or algorithm, "
+            f"or a Callable, got {type(policy)} instead",
+        )
+
+    return get_actions
+
 
 def generate_trajectories(
     policy: AnyPolicy,
     venv: VecEnv,
     sample_until: GenTrajTerminationFn,
     rng: np.random.Generator,
+    num_homogenous_agents=1,
     *,
     deterministic_policy: bool = False,
 ) -> Sequence[types.TrajectoryWithRew]:
@@ -409,7 +454,10 @@ def generate_trajectories(
         may be collected to avoid biasing process towards short episodes; the user
         should truncate if required.
     """
-    get_actions = policy_to_callable(policy, venv, deterministic_policy)
+    if isinstance(policy, policy_base.HomogenousActorCriticPolicy):
+        get_actions = homogenous_policy_to_callable(policy, venv, deterministic_policy)
+    else:
+        get_actions = policy_to_callable(policy, venv, deterministic_policy)
 
     # Collect rollout tuples.
     trajectories = []
