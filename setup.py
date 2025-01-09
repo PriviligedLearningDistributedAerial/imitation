@@ -200,7 +200,7 @@ setup(
         "ale-py~=0.10.1",
         "matplotlib",
         "numpy<2.0",
-        "torch>=1.4.0",
+        "torch==2.3.1",
         "tqdm",
         "rich",
         "scikit-learn>=0.21.2",
