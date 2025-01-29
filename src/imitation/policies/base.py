@@ -231,7 +231,7 @@ class HomogenousFeedForward32Policy(HomogenousActorCriticPolicy):
 
     def __init__(self, *args, **kwargs):
         """Builds FeedForward32Policy; arguments passed to `ActorCriticPolicy`."""
-        super().__init__(*args, **kwargs, net_arch=[32, 32])
+        super().__init__(*args, **kwargs, net_arch=[256, 256, 128])
 
 
 class SAC1024Policy(sac_policies.SACPolicy):
