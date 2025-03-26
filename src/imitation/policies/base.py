@@ -1,5 +1,13 @@
 """Custom policy classes and convenience methods."""
 
+import os, sys
+current_dir = "/home/agilicious/catkin_ws"
+python_mpc_path = os.path.join(current_dir, "src/volume/python_mpc/scripts")
+if python_mpc_path not in sys.path:
+    sys.path.insert(0, python_mpc_path)
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+
 import abc
 from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
@@ -14,6 +22,8 @@ from torch import nn
 
 from imitation.data import types
 from imitation.util import networks
+from mpc_class import TeacherPolicy, load_params
+from data_classes import *
 
 SelfHomogeousActorCriticPolicy = TypeVar("SelfHomogeousActorCriticPolicy", bound="HomogenousActorCriticPolicy")
 
@@ -277,3 +287,35 @@ class NormalizeFeaturesExtractor(torch_layers.FlattenExtractor):
     def forward(self, observations: th.Tensor) -> th.Tensor:
         flattened = super().forward(observations)
         return self.normalize(flattened)
+
+class MPCPolicy():
+    def __init__(self, observation_space, action_space, param_preload, param_load_ctrl, param_drones_ctrl, param_nmpc, proj_path):
+        self.observation_space = observation_space
+        self.action_space = action_space
+        self.param_preload: ParamPreload = param_preload
+        self.param_load_ctrl = param_load_ctrl
+        self.param_drones_ctrl = param_drones_ctrl
+        self.param_nmpc = param_nmpc
+        self.proj_path = proj_path
+        self.mdp_policies: Dict[float, TeacherPolicy] = {}
+
+    def create(self, env_id, stime):
+        policy = TeacherPolicy(param_preload=self.param_preload, param_nmpc=self.param_nmpc, 
+                                    param_drones_ctrl=self.param_drones_ctrl, 
+                                    param_load_ctrl=self.param_load_ctrl, proj_path=self.proj_path,
+                                    rebuild_acados_ocp=False)
+        policy.get_ref_traj(self.param_preload.file_reference_traj, stime)
+        
+        self.mdp_policies[env_id] = policy
+        return
+    
+    def predict(self, observations):        
+        env_id = observations['env_id']
+        if env_id in self.mdp_policies.keys():
+            pass
+        else:
+            self.create(env_id, observations['stime'])
+        
+        policy = self.mdp_policies[env_id]
+        action = policy.solve_rl(observations)
+        return action
