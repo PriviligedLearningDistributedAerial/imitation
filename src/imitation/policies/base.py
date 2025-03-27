@@ -309,12 +309,24 @@ class MPCPolicy():
         self.mdp_policies[env_id] = policy
         return
     
-    def predict(self, observations):        
-        env_id = observations['env_id']
+    def predict(self, observations:dict):
+        out_actions = []
+        for i in range(len(observations['stime'])):
+            one_env_observation = {}
+            for key, value in observations.items():
+                one_env_observation[key] = value[i]
+            
+            action = self.predict_one(one_env_observation)
+            out_actions.append(action)
+        
+        return out_actions
+    
+    def predict_one(self, observations):        
+        env_id = observations['env_id'].item()
         if env_id in self.mdp_policies.keys():
             pass
         else:
-            self.create(env_id, observations['stime'])
+            self.create(env_id, observations['stime'].item())
         
         policy = self.mdp_policies[env_id]
         action = policy.solve_rl(observations)

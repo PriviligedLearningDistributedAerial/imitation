@@ -23,6 +23,7 @@ from imitation.algorithms import base, bc
 from imitation.data import rollout, serialize, types
 from imitation.util import logger as imit_logger
 from imitation.util import util
+from imitation.policies.base import MPCPolicy
 
 
 class BetaSchedule(abc.ABC):
@@ -560,7 +561,7 @@ class SimpleDAggerTrainer(DAggerTrainer):
         *,
         venv: vec_env.VecEnv,
         scratch_dir: types.AnyPath,
-        expert_policy: policies.BasePolicy,
+        expert_policy: Union[policies.BasePolicy, MPCPolicy],  # Custom implementation - Allow MPC Policy to be used in DAGGER
         rng: np.random.Generator,
         expert_trajs: Optional[Sequence[types.Trajectory]] = None,
         **dagger_trainer_kwargs,

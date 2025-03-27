@@ -26,7 +26,7 @@ from stable_baselines3.common.vec_env import VecEnv
 from imitation.policies import base as policy_base
 
 from imitation.data import types
-
+from imitation.policies.base import MPCPolicy
 
 def unwrap_traj(traj: types.TrajectoryWithRew) -> types.TrajectoryWithRew:
     """Uses `RolloutInfoWrapper`-captured `obs` and `rews` to replace fields.
@@ -110,6 +110,9 @@ class TrajectoryAccumulator:
             for k, array in part_dict.items():
                 out_dict_unstacked[k].append(array)
 
+        # Todo: Check if this is required
+        # del out_dict_unstacked['infos'][-1]['episode']
+        # del out_dict_unstacked['infos'][-1]['terminal_observation']
         out_dict_stacked = {
             k: types.stack_maybe_dictobs(arr_list)
             for k, arr_list in out_dict_unstacked.items()
@@ -163,7 +166,12 @@ class TrajectoryAccumulator:
                 # When dones[i] from VecEnv.step() is True, obs[i] is the first
                 # observation following reset() of the ith VecEnv, and
                 # infos[i]["terminal_observation"] is the actual final observation.
+                # Custom: the last observations are not correct numpy shape
+                for key, value in info["terminal_observation"].items():
+                    if len(value.shape) == 0:
+                        info["terminal_observation"][key] = value[np.newaxis]
                 real_ob = types.maybe_wrap_in_dictobs(info["terminal_observation"])
+
             else:
                 real_ob = ob
 
@@ -283,7 +291,7 @@ PolicyCallable = Callable[
     ],
     Tuple[np.ndarray, Optional[Tuple[np.ndarray, ...]]],  # actions, states
 ]
-AnyPolicy = Union[BaseAlgorithm, BasePolicy, PolicyCallable, None]
+AnyPolicy = Union[BaseAlgorithm, BasePolicy, PolicyCallable, MPCPolicy, None]
 
 
 def policy_to_callable(
@@ -323,6 +331,16 @@ def policy_to_callable(
                 episode_start=episode_starts,
                 deterministic=deterministic_policy,
             )
+            return acts, states
+    
+    elif isinstance(policy, MPCPolicy):
+        "Custom implimentation to allow MPC policy to be used in DAGGER"
+        def get_actions(
+            observations: Union[np.ndarray, Dict[str, np.ndarray]],
+            states: Optional[Tuple[np.ndarray, ...]],
+            episode_starts: Optional[np.ndarray],
+        ) -> Tuple[np.ndarray, Optional[Tuple[np.ndarray, ...]]]:
+            acts = policy.predict(observations)
             return acts, states
 
     elif callable(policy):
@@ -543,13 +561,16 @@ def generate_trajectories(
             exp_obs = (n_steps + 1,) + obs_space_shape  # type: ignore[assignment]
         real_obs = trajectory.obs.shape
         assert real_obs == exp_obs, f"expected shape {exp_obs}, got {real_obs}"
-        assert venv.action_space.shape is not None
-        exp_act = (n_steps,) + venv.action_space.shape
-        real_act = trajectory.acts.shape
-        assert real_act == exp_act, f"expected shape {exp_act}, got {real_act}"
-        exp_rew = (n_steps,)
-        real_rew = trajectory.rews.shape
-        assert real_rew == exp_rew, f"expected shape {exp_rew}, got {real_rew}"
+
+        # Todo: Disabled because actions are also dicts
+
+        # assert venv.action_space.shape is not None
+        # exp_act = (n_steps,) + venv.action_space.shape
+        # real_act = trajectory.acts.shape
+        # assert real_act == exp_act, f"expected shape {exp_act}, got {real_act}"
+        # exp_rew = (n_steps,)
+        # real_rew = trajectory.rews.shape
+        # assert real_rew == exp_rew, f"expected shape {exp_rew}, got {real_rew}"
 
     return trajectories
 

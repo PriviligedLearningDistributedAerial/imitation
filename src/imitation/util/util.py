@@ -114,11 +114,11 @@ def make_vec_env(
     # Resolve the spec outside of the subprocess first, so that it is available to
     # subprocesses running `make_env` via automatic pickling.
     # Just to ensure packages are imported and spec is properly resolved
-    tmp_env = gym.make(env_name)
-    tmp_env.close()
-    spec = tmp_env.spec
     env_make_kwargs = env_make_kwargs or {}
-
+    # tmp_env = gym.make(env_name, **env_make_kwargs)
+    # tmp_env.close()
+    spec = env_name
+    
     def make_env(i: int, this_seed: int) -> gym.Env:
         # Previously, we directly called `gym.make(env_name)`, but running
         # `imitation.scripts.train_adversarial` within `imitation.scripts.parallel`
