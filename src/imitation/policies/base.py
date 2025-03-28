@@ -299,12 +299,13 @@ class MPCPolicy():
         self.proj_path = proj_path
         self.mdp_policies: Dict[float, TeacherPolicy] = {}
 
-    def create(self, env_id, stime):
+    def create(self, env_id, offline_ref_arr, offline_traj_seq_n):
         policy = TeacherPolicy(param_preload=self.param_preload, param_nmpc=self.param_nmpc, 
                                     param_drones_ctrl=self.param_drones_ctrl, 
                                     param_load_ctrl=self.param_load_ctrl, proj_path=self.proj_path,
                                     rebuild_acados_ocp=False)
-        policy.get_ref_traj(self.param_preload.file_reference_traj, stime)
+        offline_ref = np.array([LoadState.load_from_array(offline_ref_arr[i]) for i in range(len(offline_ref_arr))])
+        policy.rl_get_ref_traj(offline_ref, int(offline_traj_seq_n))
         
         self.mdp_policies[env_id] = policy
         return
@@ -326,8 +327,8 @@ class MPCPolicy():
         if env_id in self.mdp_policies.keys():
             pass
         else:
-            self.create(env_id, observations['stime'].item())
-        
+            self.create(env_id, observations['offline_ref'], observations['offline_traj_seq_n'].item())
+
         policy = self.mdp_policies[env_id]
         action = policy.solve_rl(observations)
         return action
