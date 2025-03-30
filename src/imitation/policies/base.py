@@ -297,17 +297,22 @@ class MPCPolicy():
         self.param_drones_ctrl = param_drones_ctrl
         self.param_nmpc = param_nmpc
         self.proj_path = proj_path
-        self.mdp_policies: Dict[float, TeacherPolicy] = {}
-
-    def create(self, env_id, offline_ref_arr, offline_traj_seq_n):
-        policy = TeacherPolicy(param_preload=self.param_preload, param_nmpc=self.param_nmpc, 
+        self.mdp_policies: set = set()
+        self.policy = TeacherPolicy(param_preload=self.param_preload, param_nmpc=self.param_nmpc, 
                                     param_drones_ctrl=self.param_drones_ctrl, 
                                     param_load_ctrl=self.param_load_ctrl, proj_path=self.proj_path,
                                     rebuild_acados_ocp=False)
+
+    def create(self, env_id, offline_ref_arr, offline_traj_seq_n):
+        # policy = TeacherPolicy(param_preload=self.param_preload, param_nmpc=self.param_nmpc, 
+        #                             param_drones_ctrl=self.param_drones_ctrl, 
+        #                             param_load_ctrl=self.param_load_ctrl, proj_path=self.proj_path,
+        #                             rebuild_acados_ocp=False)
+        self.policy.reset()
         offline_ref = np.array([LoadState.load_from_array(offline_ref_arr[i]) for i in range(len(offline_ref_arr))])
-        policy.rl_get_ref_traj(offline_ref, int(offline_traj_seq_n))
+        self.policy.rl_get_ref_traj(offline_ref, int(offline_traj_seq_n))
         
-        self.mdp_policies[env_id] = policy
+        self.mdp_policies.add(env_id)
         return
     
     def predict(self, observations:dict):
@@ -324,11 +329,11 @@ class MPCPolicy():
     
     def predict_one(self, observations):        
         env_id = observations['env_id'].item()
-        if env_id in self.mdp_policies.keys():
+        if env_id in self.mdp_policies:
             pass
         else:
             self.create(env_id, observations['offline_ref'], observations['offline_traj_seq_n'].item())
 
-        policy = self.mdp_policies[env_id]
-        action = policy.solve_rl(observations)
+        # policy = self.mdp_policies[env_id]
+        action = self.policy.solve_rl(observations)
         return action
