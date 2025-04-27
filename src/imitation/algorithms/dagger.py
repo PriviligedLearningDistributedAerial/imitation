@@ -20,7 +20,8 @@ from stable_baselines3.common.vec_env.base_vec_env import VecEnvStepReturn
 from torch.utils import data as th_data
 
 from imitation.algorithms import base, bc
-from imitation.data import rollout, serialize, types
+from imitation.data import rollout, types
+from imitation.data import serialize_pickle as serialize # Use serialize_pickle for compatibility with DictObs
 from imitation.util import logger as imit_logger
 from imitation.util import util
 from imitation.policies.base import MPCPolicy
@@ -222,9 +223,10 @@ class InteractiveTrajectoryCollector(vec_env.VecEnvWrapper):
         """
         self.traj_accum = rollout.TrajectoryAccumulator()
         obs = self.venv.reset()
-        assert isinstance(obs, np.ndarray)
-        for i, ob in enumerate(obs):
-            self.traj_accum.add_step({"obs": ob}, key=i)
+        wrapped_obs = types.maybe_wrap_in_dictobs(obs) # Bug fix
+        assert isinstance(obs, (np.ndarray, dict))
+        for i, ob in enumerate(wrapped_obs):
+            self.traj_accum.add_step({"obs": ob}, key=i) # Fix this: Done above
         self._last_obs = obs
         self._is_reset = True
         self._last_user_actions = None
@@ -257,7 +259,8 @@ class InteractiveTrajectoryCollector(vec_env.VecEnvWrapper):
 
         mask = self.rng.uniform(0, 1, size=(self.num_envs,)) > self.beta
         if np.sum(mask) != 0:
-            actual_acts[mask] = self.get_robot_acts(self._last_obs[mask])
+            last_obs = types.maybe_wrap_in_dictobs(self._last_obs)
+            actual_acts[mask] = self.get_robot_acts(last_obs[mask])
 
         self._last_user_actions = actions
         self.venv.step_async(actual_acts)
@@ -271,7 +274,8 @@ class InteractiveTrajectoryCollector(vec_env.VecEnvWrapper):
             Observation, reward, dones (is terminal?) and info dict.
         """
         next_obs, rews, dones, infos = self.venv.step_wait()
-        assert isinstance(next_obs, np.ndarray)
+
+        assert isinstance(next_obs, (np.ndarray, dict))
         assert self.traj_accum is not None
         assert self._last_user_actions is not None
         self._last_obs = next_obs

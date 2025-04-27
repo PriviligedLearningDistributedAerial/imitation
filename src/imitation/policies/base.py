@@ -24,6 +24,7 @@ from imitation.data import types
 from imitation.util import networks
 from mpc_class import TeacherPolicy, load_params
 from data_classes import *
+from imitation.util import util
 
 SelfHomogeousActorCriticPolicy = TypeVar("SelfHomogeousActorCriticPolicy", bound="HomogenousActorCriticPolicy")
 
@@ -86,25 +87,30 @@ class HomogenousActorCriticPolicy(policies.ActorCriticPolicy):
                 "and documentation for more information: https://stable-baselines3.readthedocs.io/en/master/guide/vec_envs.html#vecenv-api-vs-gym-api"
             )
 
-        obs_tensor, vectorized_env = obs_as_tensor(observation, self.device), True
+        # obs_tensor= obs_as_tensor(observation, self.device), True
+        obs_tensor = types.map_maybe_dict(
+                            lambda x: util.safe_to_tensor(x, device=self.device),
+                            types.maybe_unwrap_dictobs(observation),
+                        )
+        vectorized_env  = True
 
         with th.no_grad():
             actions = self._predict(obs_tensor, deterministic=deterministic)
         # Convert to numpy, and reshape to the original action shape
         actions = actions.cpu().numpy()
 
-        if isinstance(self.action_space, spaces.Box):
-            if self.squash_output:
-                # Rescale to proper domain when using squashing
-                actions = self.unscale_action(actions)  # type: ignore[assignment, arg-type]
-            else:
-                # Actions could be on arbitrary scale, so clip the actions to avoid
-                # out of bound error (e.g. if sampling from a Gaussian distribution)
-                actions = np.clip(
-                                    actions, 
-                                    np.concatenate([self.action_space.low for i in range(self.num_agents)]), 
-                                    np.concatenate([self.action_space.high for i in range(self.num_agents)])
-                                    )  # type: ignore[assignment, arg-type]
+        # if isinstance(self.action_space, spaces.Box):
+        #     if self.squash_output:
+        #         # Rescale to proper domain when using squashing
+        #         actions = self.unscale_action(actions)  # type: ignore[assignment, arg-type]
+        #     else:
+        #         # Actions could be on arbitrary scale, so clip the actions to avoid
+        #         # out of bound error (e.g. if sampling from a Gaussian distribution)
+        #         actions = np.clip(
+        #                             actions, 
+        #                             np.concatenate([self.action_space.low for i in range(self.num_agents)]), 
+        #                             np.concatenate([self.action_space.high for i in range(self.num_agents)])
+        #                             )  # type: ignore[assignment, arg-type]
 
         # Remove batch dimension if needed
         if not vectorized_env:
@@ -336,4 +342,4 @@ class MPCPolicy():
 
         # policy = self.mdp_policies[env_id]
         action = self.policy.solve_rl(observations)
-        return action
+        return action[1:]
