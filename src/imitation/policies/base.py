@@ -317,7 +317,7 @@ class MPCPolicy():
         self.policy.reset()
         offline_ref = np.array([LoadState.load_from_array(offline_ref_arr[i]) for i in range(len(offline_ref_arr))])
         self.policy.rl_get_ref_traj(offline_ref, int(offline_traj_seq_n))
-        
+        print("Policy reset")
         self.mdp_policies.add(env_id)
         return
     
@@ -333,11 +333,14 @@ class MPCPolicy():
         
         return out_actions
     
-    def predict_one(self, observations):        
+    def predict_one(self, observations, reset=False):        
         env_id = observations['env_id'].item()
         if env_id in self.mdp_policies:
             pass
         else:
+            self.create(env_id, observations['offline_ref'], observations['offline_traj_seq_n'].item())
+
+        if reset:
             self.create(env_id, observations['offline_ref'], observations['offline_traj_seq_n'].item())
 
         # policy = self.mdp_policies[env_id]
