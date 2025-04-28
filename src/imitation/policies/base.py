@@ -341,5 +341,8 @@ class MPCPolicy():
             self.create(env_id, observations['offline_ref'], observations['offline_traj_seq_n'].item())
 
         # policy = self.mdp_policies[env_id]
-        action = self.policy.solve_rl(observations)
+        action, ocp_status = self.policy.solve_rl(observations)
+        if ocp_status != 0:
+            self.create(env_id, observations['offline_ref'], observations['offline_traj_seq_n'].item())
+            return self.predict_one(observations)
         return action[1:]
